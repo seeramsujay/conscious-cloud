@@ -1,0 +1,41 @@
+# Go
+control-plane/control-plane
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go.sum
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Terraform
+infrastructure/.terraform/
+infrastructure/terraform.tfstate*
+infrastructure/*.tfplan
+infrastructure/lambda-handler.zip
+
+# Envoy
+data-plane/certs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
