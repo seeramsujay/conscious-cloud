@@ -2,6 +2,12 @@ node:
   id: "arbitrage-fleet-node"
   cluster: "stateless_microservice_tier"
 
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
 dynamic_resources:
   ads_config:
     api_type: DELTA_GRPC

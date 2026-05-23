@@ -1,7 +1,7 @@
 import argparse
 import json
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class EchoHandler(BaseHTTPRequestHandler):
@@ -63,7 +63,7 @@ def main():
 
     EchoHandler.delay = args.delay
 
-    server = HTTPServer(("0.0.0.0", args.port), EchoHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), EchoHandler)
     print(f"Echo worker listening on 0.0.0.0:{args.port}, delay={args.delay}s")
     try:
         server.serve_forever()

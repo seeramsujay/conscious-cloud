@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.30.1
+    volumes:
+      - ./data-plane/envoy.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "10000:10000"
+      - "9901:9901"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - arbitrage_net
+
+  worker-a:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    command: ["--port", "8080", "--delay", "0.1"]
+    networks:
+      - arbitrage_net
+
+  worker-b:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    command: ["--port", "8080", "--delay", "0.1"]
+    networks:
+      - arbitrage_net
+
+networks:
+  arbitrage_net:
+    driver: bridge
