@@ -4,7 +4,9 @@ import random
 import time
 import urllib.request
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger("orchestrator")
 
 CONTROL_PLANE_URL = "http://localhost:8081/update-eds"

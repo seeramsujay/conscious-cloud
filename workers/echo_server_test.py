@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 
+
 def test_worker_helpers():
     echo_path = Path(__file__).parent / "echo-server.py"
     assert echo_path.exists()
