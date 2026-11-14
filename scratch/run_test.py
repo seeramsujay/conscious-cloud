@@ -1,19 +1,26 @@
-import os
-import subprocess
-import time
-import urllib.request
-import urllib.error
 import json
+import subprocess
 import sys
 import threading
+import time
+import urllib.error
+import urllib.request
+
 
 def get_container_ip(container_name):
-    cmd = ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container_name]
+    cmd = [
+        "docker",
+        "inspect",
+        "-f",
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        container_name,
+    ]
     res = subprocess.run(cmd, capture_output=True, text=True, check=True)
     ip = res.stdout.strip()
     if not ip:
         raise ValueError(f"Could not get IP for container {container_name}")
     return ip
+
 
 def send_request(url):
     try:
@@ -24,6 +31,7 @@ def send_request(url):
     except urllib.error.URLError as e:
         return str(e.reason), 500
 
+
 def get_active_requests(worker_ip):
     url = "http://localhost:9901/clusters?format=json"
     try:
@@ -33,7 +41,11 @@ def get_active_requests(worker_ip):
             for cluster in data.get("cluster_statuses", []):
                 if cluster.get("name") == "arbitrage_spot_cluster":
                     for host in cluster.get("host_statuses", []):
-                        address = host.get("address", {}).get("socket_address", {}).get("address")
+                        address = (
+                            host.get("address", {})
+                            .get("socket_address", {})
+                            .get("address")
+                        )
                         if address == worker_ip:
                             for stat in host.get("stats", []):
                                 if stat.get("name") == "rq_active":
@@ -42,6 +54,7 @@ def get_active_requests(worker_ip):
     except Exception as e:
         print(f"Error querying active requests: {e}")
     return 0
+
 
 def main():
     print("=== Phase 1: Local Routing Core Load Test ===")
@@ -53,17 +66,17 @@ def main():
         cwd="/home/suzaykid/Projects/conscious-cloud/control-plane",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True
+        text=True,
     )
-    
+
     # Give control plane time to start and bind ports
     time.sleep(3)
-    
+
     if cp_process.poll() is not None:
         stdout, stderr = cp_process.communicate()
         print(f"Control plane failed to start. Stdout:\n{stdout}\nStderr:\n{stderr}")
         sys.exit(1)
-    
+
     print("Control Plane started successfully.")
 
     try:
@@ -71,7 +84,7 @@ def main():
         print("Starting Docker Compose stack (Envoy + Worker A + Worker B)...")
         subprocess.run(["docker", "compose", "down", "-v"], check=True)
         subprocess.run(["docker", "compose", "up", "--build", "-d"], check=True)
-        
+
         # Wait for Envoy to boot
         print("Waiting for Envoy and Workers to boot...")
         time.sleep(10)
@@ -105,12 +118,13 @@ def main():
             raise RuntimeError("Envoy failed to route to Worker A within timeout")
 
         print("Warming up Envoy connection pool to Worker A...")
+
         # Send requests concurrently to warm up connection pool
         def warm_worker():
             for _ in range(10):
                 send_request("http://localhost:10000/")
                 time.sleep(0.05)
-        
+
         threads = [threading.Thread(target=warm_worker) for _ in range(10)]
         for t in threads:
             t.start()
@@ -121,9 +135,20 @@ def main():
         # 5. Start the load test in a separate thread
         print("Starting background load test (1,000 req/sec total via hey)...")
         hey_output = []
+
         def run_hey():
             # Concurrency = 20, QPS per worker = 50 -> 1000 QPS. Duration = 25 seconds
-            cmd = ["/home/suzaykid/go/bin/hey", "-z", "25s", "-q", "50", "-c", "20", "-h2", "http://localhost:10000/"]
+            cmd = [
+                "/home/suzaykid/go/bin/hey",
+                "-z",
+                "25s",
+                "-q",
+                "50",
+                "-c",
+                "20",
+                "-h2",
+                "http://localhost:10000/",
+            ]
             res = subprocess.run(cmd, capture_output=True, text=True)
             hey_output.append(res.stdout)
 
@@ -135,7 +160,9 @@ def main():
 
         # 6. Execute IP Swap Sequence:
         # Step A: Add Worker B (Spot) as UNHEALTHY. Envoy active health checks will probe it.
-        print("\n[Swap Step 1] Provisioning Worker B. Registering as UNHEALTHY to initiate health checking...")
+        print(
+            "\n[Swap Step 1] Provisioning Worker B. Registering as UNHEALTHY to initiate health checking..."
+        )
         url = f"http://localhost:8082/update-eds?ips={worker_a_ip},{worker_b_ip}&weights=100,100&healths=healthy,unhealthy"
         body, status = send_request(url)
         print(f"Control Plane: {body}")
@@ -163,7 +190,7 @@ def main():
             if hc_passed:
                 break
             time.sleep(0.5)
-        
+
         if hc_passed:
             print("Worker B passed active health checks!")
         else:
@@ -171,7 +198,9 @@ def main():
             sys.exit(1)
 
         # Step C: Drain Worker A (On-Demand) by setting its health status to DRAINING
-        print("\n[Swap Step 2] Setting Worker A health status to DRAINING. Connection draining initiated...")
+        print(
+            "\n[Swap Step 2] Setting Worker A health status to DRAINING. Connection draining initiated..."
+        )
         url = f"http://localhost:8082/update-eds?ips={worker_a_ip},{worker_b_ip}&weights=100,100&healths=draining,healthy"
         body, status = send_request(url)
         print(f"Control Plane: {body}")
@@ -188,7 +217,7 @@ def main():
                 drained = True
                 break
             time.sleep(0.5)
-        
+
         if drained:
             print("Worker A fully drained (0 active requests).")
         else:
@@ -203,7 +232,7 @@ def main():
         # 7. Wait for load test to finish and analyze results
         print("\nWaiting for load test to complete...")
         hey_thread.join()
-        
+
         output = hey_output[0]
         print("\n=== Load Test Summary ===")
         print(output)
@@ -224,33 +253,53 @@ def main():
                     else:
                         non_200 = True
                         print(f"WARNING: Non-200 status code observed: {line.strip()}")
-            
+
             if found_200 and not non_200:
-                print("\nSUCCESS: 100% of requests returned HTTP 200! Zero connection drops achieved.")
+                print(
+                    "\nSUCCESS: 100% of requests returned HTTP 200! Zero connection drops achieved."
+                )
             else:
-                print("\nFAILURE: Some requests failed or returned non-200 status codes.")
+                print(
+                    "\nFAILURE: Some requests failed or returned non-200 status codes."
+                )
                 sys.exit(1)
         else:
-            print("\nWARNING: Could not parse status code distribution from hey output.")
+            print(
+                "\nWARNING: Could not parse status code distribution from hey output."
+            )
             sys.exit(1)
 
     finally:
         print("\n=== Envoy Logs ===")
-        subprocess.run(["docker", "compose", "logs", "envoy"], cwd="/home/suzaykid/Projects/conscious-cloud")
+        subprocess.run(
+            ["docker", "compose", "logs", "envoy"],
+            cwd="/home/suzaykid/Projects/conscious-cloud",
+        )
         print("\n=== Worker A Logs ===")
-        subprocess.run(["docker", "compose", "logs", "worker-a"], cwd="/home/suzaykid/Projects/conscious-cloud")
+        subprocess.run(
+            ["docker", "compose", "logs", "worker-a"],
+            cwd="/home/suzaykid/Projects/conscious-cloud",
+        )
         print("\n=== Worker B Logs ===")
-        subprocess.run(["docker", "compose", "logs", "worker-b"], cwd="/home/suzaykid/Projects/conscious-cloud")
-        
+        subprocess.run(
+            ["docker", "compose", "logs", "worker-b"],
+            cwd="/home/suzaykid/Projects/conscious-cloud",
+        )
+
         print("\nCleaning up resources...")
         # Terminate Go Control Plane
         cp_process.terminate()
         cp_process.wait()
         print("Go Control Plane stopped.")
-        
+
         # Stop docker compose
-        subprocess.run(["docker", "compose", "down", "-v"], cwd="/home/suzaykid/Projects/conscious-cloud", check=True)
+        subprocess.run(
+            ["docker", "compose", "down", "-v"],
+            cwd="/home/suzaykid/Projects/conscious-cloud",
+            check=True,
+        )
         print("Docker containers stopped.")
+
 
 if __name__ == "__main__":
     main()
